@@ -43,6 +43,12 @@ st.markdown(
             border-radius: 12px;
             background-color: #f2f6ff;
             border-left: 6px solid #3366cc;
+
+            /* Chuyển chữ câu hỏi sang màu đen */
+            color: #000000 !important;
+
+            /* Làm chữ nổi bật hơn */
+            font-weight: 600;
             font-size: 20px;
             line-height: 1.6;
             margin-bottom: 20px;
@@ -55,6 +61,7 @@ st.markdown(
             border-radius: 10px;
             background-color: #fff8dc;
             border: 1px solid #e0c96d;
+            color: #000000 !important;
             font-size: 17px;
             line-height: 1.7;
             white-space: pre-wrap;
@@ -488,10 +495,21 @@ left_column, right_column = st.columns(2, gap="large")
 with left_column:
     st.markdown("### 👀 Đáp án mẫu")
 
-    st.markdown(
-        f'<div class="answer-box">{safe_answer}</div>',
-        unsafe_allow_html=True,
+    st.info(
+        "Đáp án đang được ẩn. "
+        "Hãy thử tự nhớ và gõ lại trước khi xem đáp án."
     )
+
+    # Đáp án mặc định được ẩn.
+    # Khi người dùng bấm nút, một cửa sổ nhỏ sẽ hiện ra.
+    with st.popover(
+        "👁️ Xem đáp án mẫu",
+        use_container_width=True,
+    ):
+        st.markdown(
+            f'<div class="answer-box">{safe_answer}</div>',
+            unsafe_allow_html=True,
+        )
 
 with right_column:
     st.markdown("### ✍️ Gõ lại đáp án")
