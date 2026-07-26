@@ -14,6 +14,7 @@ import streamlit as st
 
 
 APP_TITLE = "Kiểm tra thông tư"
+APP_VERSION = "2026.07.26-v3"
 DEFAULT_DATA_FILE = Path(__file__).with_name("kho_cau_hoi.xlsx")
 
 
@@ -304,52 +305,167 @@ def automatic_hints(answer: str) -> list[str]:
 
 @st.cache_data(show_spinner=False)
 def load_question_bank(file_bytes: bytes) -> pd.DataFrame:
-    dataframe = pd.read_excel(BytesIO(file_bytes), dtype=str)
-    dataframe.columns = [str(column).strip() for column in dataframe.columns]
+    """Đọc kho câu hỏi từ mọi sheet và tự tìm dòng tiêu đề.
 
-    simplified = {simplify_column_name(column): column for column in dataframe.columns}
+    Hàm chấp nhận các trường hợp thường gặp:
+    - Có vài dòng tiêu đề/ghi chú trống phía trên bảng dữ liệu.
+    - Bảng câu hỏi nằm ở sheet không phải sheet đầu tiên.
+    - Tên cột có khác biệt nhẹ như: Câu hỏi, Nội dung câu hỏi,
+      Đáp án, Đáp án mẫu, Câu trả lời, Gợi ý, Từ khóa...
+    """
 
-    aliases = {
-        "question": ["cauhoi", "question"],
-        "answer": ["dapan", "answer", "dapanmau"],
-        "hint": ["goiy", "hint", "tukhoa"],
+    column_aliases = {
+        "question": {
+            "cauhoi",
+            "noidungcauhoi",
+            "cauhoituluan",
+            "debaicauhoi",
+            "question",
+            "questions",
+        },
+        "answer": {
+            "dapan",
+            "dapanmau",
+            "noidungdapan",
+            "dapandung",
+            "cautraloi",
+            "noidungtraloi",
+            "traloi",
+            "answer",
+            "answers",
+        },
+        "hint": {
+            "goiy",
+            "tukhoa",
+            "tukhoagoiy",
+            "goiydapan",
+            "hint",
+            "hints",
+            "keyword",
+            "keywords",
+        },
     }
 
-    selected: dict[str, str | None] = {}
-    for target, choices in aliases.items():
-        selected[target] = next(
-            (simplified[choice] for choice in choices if choice in simplified),
-            None,
-        )
+    def find_matching_column(
+        simplified_headers: list[str],
+        aliases: set[str],
+    ) -> int | None:
+        # Ưu tiên khớp chính xác.
+        for index, header in enumerate(simplified_headers):
+            if header in aliases:
+                return index
 
-    if selected["question"] is None or selected["answer"] is None:
+        # Sau đó cho phép tên cột dài hơn, ví dụ "Nội dung đáp án mẫu".
+        for index, header in enumerate(simplified_headers):
+            if not header:
+                continue
+            if any(alias in header or header in alias for alias in aliases):
+                return index
+        return None
+
+    try:
+        excel_file = pd.ExcelFile(BytesIO(file_bytes))
+    except Exception as error:
         raise ValueError(
-            "File Excel phải có tối thiểu hai cột: 'Câu hỏi' và 'Đáp án'."
-        )
+            "Tệp không phải file Excel .xlsx hợp lệ hoặc file đang bị hỏng."
+        ) from error
 
-    result = pd.DataFrame(
-        {
-            "question": dataframe[selected["question"]],
-            "answer": dataframe[selected["answer"]],
-            "hint": (
-                dataframe[selected["hint"]]
-                if selected["hint"] is not None
-                else ""
-            ),
-        }
+    inspected_sheets: list[str] = []
+    diagnostic_headers: list[str] = []
+
+    for sheet_name in excel_file.sheet_names:
+        try:
+            raw = pd.read_excel(
+                excel_file,
+                sheet_name=sheet_name,
+                header=None,
+                dtype=str,
+            )
+        except Exception:
+            continue
+
+        raw = raw.dropna(axis=0, how="all").dropna(axis=1, how="all")
+        if raw.empty:
+            continue
+
+        inspected_sheets.append(str(sheet_name))
+        scan_limit = min(100, len(raw))
+
+        # Ghi lại một số dòng đầu để thông báo lỗi dễ chẩn đoán hơn.
+        for diagnostic_position in range(min(8, len(raw))):
+            diagnostic_values = [
+                "" if pd.isna(value) else str(value).strip()
+                for value in raw.iloc[diagnostic_position].tolist()
+            ]
+            non_empty = [value for value in diagnostic_values if value]
+            if non_empty:
+                diagnostic_headers.append(
+                    f"Sheet '{sheet_name}', dòng {diagnostic_position + 1}: "
+                    + " | ".join(non_empty[:10])
+                )
+
+        for row_position in range(scan_limit):
+            header_values = [
+                "" if pd.isna(value) else str(value).strip()
+                for value in raw.iloc[row_position].tolist()
+            ]
+            simplified_headers = [
+                simplify_column_name(value) for value in header_values
+            ]
+
+            question_index = find_matching_column(
+                simplified_headers,
+                column_aliases["question"],
+            )
+            answer_index = find_matching_column(
+                simplified_headers,
+                column_aliases["answer"],
+            )
+
+            if question_index is None or answer_index is None:
+                continue
+
+            hint_index = find_matching_column(
+                simplified_headers,
+                column_aliases["hint"],
+            )
+
+            data_rows = raw.iloc[row_position + 1 :].copy()
+
+            result = pd.DataFrame(
+                {
+                    "question": data_rows.iloc[:, question_index],
+                    "answer": data_rows.iloc[:, answer_index],
+                    "hint": (
+                        data_rows.iloc[:, hint_index]
+                        if hint_index is not None
+                        else ""
+                    ),
+                }
+            )
+
+            result = result.fillna("")
+            result["question"] = result["question"].astype(str).str.strip()
+            result["answer"] = result["answer"].astype(str).str.strip()
+            result["hint"] = result["hint"].astype(str).str.strip()
+            result = result[
+                (result["question"] != "") & (result["answer"] != "")
+            ]
+            result = result.reset_index(drop=True)
+
+            if not result.empty:
+                return result
+
+    sheets_text = ", ".join(inspected_sheets) if inspected_sheets else "không xác định"
+    diagnostic_text = " || ".join(diagnostic_headers[:12])
+    if not diagnostic_text:
+        diagnostic_text = "Không đọc được dòng dữ liệu nào trong các sheet."
+    raise ValueError(
+        "Không tìm thấy bảng dữ liệu hợp lệ. Ứng dụng đã kiểm tra các sheet: "
+        f"{sheets_text}. Cần có một dòng tiêu đề chứa cột 'Câu hỏi' và "
+        "'Đáp án' hoặc 'Đáp án mẫu'. Các dòng đầu đã đọc được: "
+        f"{diagnostic_text}"
     )
-
-    result = result.fillna("")
-    result["question"] = result["question"].astype(str).str.strip()
-    result["answer"] = result["answer"].astype(str).str.strip()
-    result["hint"] = result["hint"].astype(str).str.strip()
-    result = result[(result["question"] != "") & (result["answer"] != "")]
-    result = result.reset_index(drop=True)
-
-    if result.empty:
-        raise ValueError("Kho dữ liệu chưa có câu hỏi và đáp án hợp lệ.")
-
-    return result
 
 
 def reset_learning_session(question_count: int, signature: str) -> None:
@@ -430,6 +546,7 @@ with st.sidebar:
         help="File cần có cột Câu hỏi, Đáp án và có thể thêm cột Gợi ý.",
     )
     st.caption("Không tải file mới thì ứng dụng dùng kho_cau_hoi.xlsx đi kèm.")
+    st.caption(f"Phiên bản ứng dụng: **{APP_VERSION}**")
 
 try:
     if uploaded_file is not None:
@@ -467,7 +584,7 @@ st.markdown(
     (
         '<div class="progress-text">'
         f'Câu {current_position + 1}/{len(questions)} · Vòng {st.session_state.cycle_number} · '
-        f'Nguồn: {html.escape(source_name)}'
+        f'Nguồn: {html.escape(source_name)} · Phiên bản: {APP_VERSION}'
         '</div>'
     ),
     unsafe_allow_html=True,
