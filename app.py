@@ -100,8 +100,8 @@ CUSTOM_CSS = """
 }
 
 .answer-body {
-    min-height: 210px;
-    max-height: 310px;
+    min-height: 360px;
+    max-height: 520px;
     overflow-y: auto;
     padding: 0.9rem 1rem;
     color: #000000;
@@ -112,7 +112,7 @@ CUSTOM_CSS = """
 }
 
 .answer-hidden {
-    min-height: 210px;
+    min-height: 360px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -199,7 +199,7 @@ CUSTOM_CSS = """
 }
 
 div[data-testid="stTextArea"] textarea {
-    min-height: 210px !important;
+    min-height: 360px !important;
     color: #000000 !important;
     background: #ffffff !important;
     border: 1px solid #7ab0d9 !important;
@@ -638,7 +638,7 @@ with right_column:
     st.text_area(
         "Gõ đáp án",
         key="user_answer",
-        height=210,
+        height=360,
         placeholder="Nhập lại toàn bộ đáp án theo trí nhớ của bạn…",
         label_visibility="collapsed",
     )
